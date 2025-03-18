@@ -37,3 +37,8 @@ keyring 은 위에서 이미 받았으므로 과정에서 제외
 sudo apt update
 sudo apt install libnccl2=2.26.2-1+cuda12.8 libnccl-dev=2.26.2-1+cuda12.8
 ```
+
+I installed miniconda from : https://www.anaconda.com/docs/getting-started/miniconda/install#macos-linux-installation
+```bash
+conda create -n vllm-example python=3.12 -y && conda activate vllm-example
+```
