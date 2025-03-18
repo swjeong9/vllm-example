@@ -43,3 +43,5 @@ I installed miniconda from : https://www.anaconda.com/docs/getting-started/minic
 ```bash
 conda create -n vllm-example python=3.12 -y && conda activate vllm-example
 ```
+
+I am using vscode. If your vscode can't detect vllm package, add `"python.analysis.extraPaths": ["./submodules/vllm"]` to `settings.json` for debugging.
