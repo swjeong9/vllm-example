@@ -14,6 +14,7 @@ cmake --version # cmake version 3.28.3
 ```
 
 ### Install cuda toolkit (12.8) & GPU driver (570)
+You can check comparability from https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html
 ```bash
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
 sudo dpkg -i cuda-keyring_1.1-1_all.deb
