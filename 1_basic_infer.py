@@ -8,9 +8,12 @@ prompts = [
 ]
 
 sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
+tensor_parallel_size = 1
 
 # Compute Capacity 가 80 보다 작은 경우 Bfloat16 을 지원하지 않는다. Llama-3.2-1B 는 Bfloat16 이 default 인듯
-llm = LLM(model="meta-llama/Llama-3.2-1B", dtype="float16")
+llm = LLM(model="meta-llama/Llama-3.2-1B", 
+          dtype="float16",
+          tensor_parallel_size=tensor_parallel_size)
 
 outputs = llm.generate(prompts, sampling_params)
 
