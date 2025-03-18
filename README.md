@@ -1,5 +1,6 @@
 # vllm-example
 This project aims to practice vllm framework for developing distributed LLM serving system.
+Currently used version of vllm : v0.7.3
 
 ### Install build essential & cmake
 ```bash
@@ -32,4 +33,3 @@ keyring 은 위에서 이미 받았으므로 과정에서 제외
 sudo apt update
 sudo apt install libnccl2=2.26.2-1+cuda12.8 libnccl-dev=2.26.2-1+cuda12.8
 ```
-
