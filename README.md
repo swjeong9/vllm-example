@@ -5,8 +5,12 @@ Currently used version of vllm : v0.7.3
 ### Install build essential & cmake
 ```bash
 sudo apt update
-sudo apt install build-essential
-sudo apt install cmake
+sudo apt install -y build-essential
+sudo apt install -y cmake
+```
+```bash
+gcc --version   # gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0
+cmake --version # cmake version 3.28.3
 ```
 
 ### Install cuda toolkit (12.8) & GPU driver (570)
