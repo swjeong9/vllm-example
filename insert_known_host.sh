@@ -12,8 +12,8 @@ done
 
 for HOST in $machines
 do
-    scp -o StrictHostKeyChecking=no -o UserKnownHostFile=/dev/null "all_known_hosts" "$HOST:/tmp/known_hosts_new"
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostFile=/dev/null "$HOST" "
+    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "all_known_hosts" "$HOST:/tmp/known_hosts_new"
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$HOST" "
         cat /tmp/known_hosts_new >> ~/.ssh/known_hosts
         sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
         rm /tmp/known_hosts_new
