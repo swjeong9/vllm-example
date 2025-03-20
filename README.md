@@ -45,3 +45,5 @@ conda create -n vllm-example python=3.12 -y && conda activate vllm-example
 ```
 
 I am using vscode. If your vscode can't detect vllm package, add `"python.analysis.extraPaths": ["./submodules/vllm"]` to `settings.json` for debugging.
+
+I don't use V1 Engine. So I commanded `export VLLM_USE_V1=0`
