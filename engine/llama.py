@@ -104,6 +104,7 @@ class LlamaPipelineStage(nn.Module):
         positions = kwargs["positions"]
         kv_cache = kwargs["kv_cache"]
         attn_metadata = kwargs["attn_metadata"]
+        residual = kwargs["residual"] if "residual" in kwargs else None
 
         # 첫 번째 layer 의 경우에는 input token 을 임베딩 한뒤 해당 입력을 넣어준다.
         if self.layer_id == 0:
@@ -114,7 +115,6 @@ class LlamaPipelineStage(nn.Module):
             else:
                 # token -> vector (hidden_states)
                 hidden_states = self.get_input_embeddings(input_ids)
-            residual = None
             hidden_states, residual = self.decoder_layer(
                 positions,
                 hidden_states,
@@ -124,7 +124,6 @@ class LlamaPipelineStage(nn.Module):
             )
         else:
             hidden_states = kwargs["hidden_states"]
-            residual = None
             hidden_states, residual = self.decoder_layer(
                 positions,
                 hidden_states,
