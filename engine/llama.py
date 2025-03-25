@@ -6,6 +6,7 @@ from transformers import LlamaConfig
 import torch
 import torch.nn as nn
 
+from vllm.config import VllmConfig
 from vllm.model_executor.layers.linear import (LinearMethodBase)
 from vllm.model_executor.models.llama import LlamaDecoderLayer
 from vllm.model_executor.layers.vocab_parallel_embedding import (
@@ -45,48 +46,60 @@ class LlamaPipelineStage(nn.Module):
     
     def __init__(
             self,
-            config: LlamaConfig,
-            linear_method: Optional[LinearMethodBase] = None,
-            lora_config=None,
+            *,
+            vllm_config: VllmConfig,
+            prefix="",
     ) -> None:
         super().__init__()
-        self.config = config
-        self.linear_method = linear_method
-        self.vocab_size = config.vocab_size
+        self.config = vllm_config.model_config.hf_config
+        self.vocab_size = self.config.vocab_size
+
+        lora_config = vllm_config.lora_config
+        # 현재 lora_config 를 지원하지 않을 것. 따라서 None 이어야 한다.
+        assert lora_config is not None, "lora is not supported in LlamaPipelineStage"
 
         # 원래의 LlamaConfig 에는 layer_id 같은 것이 없다. 입력으로 따로 넣어주어야 한다.
         # e.g.) config.layer_id = 0 등
-        layer_id = config.layer_id
-        self.layer_id = layer_id
+        self.layer_id = self.config.layer_id
 
-        self.decoder_layer = LlamaDecoderLayer(config, linear_method) # 1개의 디코더 레이어
+        self.decoder_layer = LlamaDecoderLayer(self.config) # 1개의 디코더 레이어
 
         # 첫 번째 레이어일 경우 토큰을 vector 로 변환시키는 작업을 거쳐야 한다.
-        if layer_id == 0:
+        if self.layer_id == 0:
             # VocabParallelEmbedding 은 임베딩을 담당하는 클래스이다.
             # Parallel 이 붙은 이유는 Tensor 병렬화를 적용할 경우 vocabulary 를 각 shard 에 나누어 
             # 저장 후 병렬적으로 처리를 맡게 하는 특징을 가지고 있다.
             self.embed_tokens = VocabParallelEmbedding(
                 self.vocab_size,
-                config.hidden_size,
-                org_num_embeddings=config.vocab_size,
+                self.config.hidden_size,
+                org_num_embeddings=self.config.vocab_size,
             )
         
         # 마지막 레이어일 경우 vector 를 토큰으로 변환시키는 작업을 거쳐야 한다.
         # 또한 elif 로 처리하지 않은 이유는 하나의 stage 가
         # 첫 번째 레이어와 마지막 레이어를 모두 포함할 수 있기 때문이다.
-        if layer_id == self.config.num_hidden_layers - 1:
-            self.unpadded_vocab_size = config.vocab_size
-            self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        if self.layer_id == self.config.num_hidden_layers - 1:
+            self.unpadded_vocab_size = self.config.vocab_size
+
+            self.norm = RMSNorm(self.config.hidden_size, eps=self.config.rms_norm_eps)
 
             # lm_head 는 language model head 를 의미한다.
             # output 의 vector size 는 (batch_size, sequence_length, hidden_size) 이다.
             # 이를 다시 logit 으로 바꿔주는 것이 LM Head 인데 즉, hidden_size -> vocab_size 로 변환하는 것이다.
             # logits = hidden_states @ W + b   (W 의 크기는 hidden_size x vocab_size)
+                # def __init__(self,
+                #  num_embeddings: int,
+                #  embedding_dim: int,
+                #  bias: bool = False,
+                #  params_dtype: Optional[torch.dtype] = None,
+                #  org_num_embeddings: Optional[int] = None,
+                #  padding_size: int = DEFAULT_VOCAB_PADDING_SIZE,
+                #  quant_config: Optional[QuantizationConfig] = None,
+                #  prefix: str = ""):
             self.lm_head = ParallelLMHead(
                 self.unpadded_vocab_size,
-                config.hidden_size,
-                org_num_embeddings=config.vocab_size,
+                self.config.hidden_size,
+                org_num_embeddings=self.config.vocab_size,
                 padding_size=DEFAULT_VOCAB_PADDING_SIZE
                 if not lora_config else lora_config.vocab_padding_size,
             )
@@ -94,13 +107,13 @@ class LlamaPipelineStage(nn.Module):
             if lora_config:
                 self.unpadded_vocab_size += lora_config.lora_extra_vocab_size
 
-            logit_scale = getattr(config, "logit_scale", 1.0)
+            logit_scale = getattr(self.config, "logit_scale", 1.0)
             self.logits_processor = LogitsProcessor(self.unpadded_vocab_size,
-                                                    config.vocab_size,
+                                                    self.config.vocab_size,
                                                     logit_scale)
             self.sampler = Sampler()
     
-    def forward(self, **kwargs):
+    def forward(self, **kwargs) -> torch.Tensor:
         positions = kwargs["positions"]
         kv_cache = kwargs["kv_cache"]
         attn_metadata = kwargs["attn_metadata"]
@@ -163,11 +176,5 @@ class LlamaPipelineStage(nn.Module):
 
 from vllm.model_executor.models import ModelRegistry, llama
 
-registry = ModelRegistry()
-# def register_model(
-#     self,
-#     model_arch: str,
-#     model_cls: Union[Type[nn.Module], str],
-# ) -> None:
-registry.register_model("LlamaForCausalLM", ("llama", "LlamaPipelineStage"))
+ModelRegistry.register_model("LlamaForCausalLM", LlamaPipelineStage)
 llama.LlamaPipelineStage = LlamaPipelineStage
