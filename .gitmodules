@@ -1,3 +1,7 @@
 [submodule "vllm"]
 	path = vllm
 	url = https://github.com/vllm-project/vllm.git
+[submodule "submodules/vllm"]
+	path = submodules/vllm
+	url = https://github.com/vllm-project/vllm.git
+	branch = v0.8.1
