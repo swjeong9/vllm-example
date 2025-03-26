@@ -5,7 +5,7 @@ from torch.distributed import destroy_process_group
 
 
 async def main():
-    model = "meta-llama/Llama-3.2-1B"
+    model = "meta-llama/Llama-2-7b-chat-hf"
     task = "generate"
     dtype = "float16"
 
@@ -14,7 +14,7 @@ async def main():
         "task": task,
         "dtype": dtype,
         "tensor_parallel_size": 1,
-        "pipeline_parallel_size": 1,
+        "pipeline_parallel_size": 2,
     }
     engine_args = AsyncEngineArgs(**engine_args)
     usage_context = UsageContext.ENGINE_CONTEXT
@@ -32,8 +32,9 @@ async def main():
             disable_log_stats=engine_args.disable_log_stats,
             )
 
+    prompt = "What is LLM?"
     example_input = {
-        "prompt": "What is LLM?",
+        "prompt": prompt,
         "stream": False, # assume the non-streaming case
         "temperature": 0.0,
         "request_id": 0,
@@ -49,7 +50,8 @@ async def main():
     final_output = None
     async for request_output in results_generator:
         for text_output in request_output.outputs:
-            print(f"Output: {text_output.text}")
+            print(f"Prompt: {prompt}")
+            print(f"Output: {text_output.text.strip()}\n")
 
 if __name__ == "__main__":
     import asyncio
