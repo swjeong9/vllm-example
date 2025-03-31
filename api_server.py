@@ -12,12 +12,13 @@ import signal
 import socket
 import tempfile
 import uuid
+import json
 from argparse import Namespace
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import partial
 from http import HTTPStatus
-from typing import Annotated, Optional, Union
+from typing import Annotated, Optional, Union, Dict
 
 import uvloop
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Request
@@ -137,9 +138,40 @@ async def build_async_engine_client(
     # Context manager to handle engine_client lifecycle
     # Ensures everything is shutdown and cleaned up on error/exit
     engine_args = AsyncEngineArgs.from_cli_args(args)
+    
+    # 노드 매핑 정보를 가져옵니다
+    node_rank_mapping = None
+    if hasattr(args, 'node_rank_mapping') and args.node_rank_mapping:
+        try:
+            node_rank_mapping = json.loads(args.node_rank_mapping)
+            logger.info(f"Node rank mapping from command line: {node_rank_mapping}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse node_rank_mapping JSON: {e}")
+            raise
+    elif hasattr(args, 'node_rank_mapping_path') and args.node_rank_mapping_path:
+        try:
+            with open(args.node_rank_mapping_path, 'r') as f:
+                node_rank_mapping = json.load(f)
+            logger.info(f"Node rank mapping loaded from file: {args.node_rank_mapping_path}")
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            logger.error(f"Failed to load node_rank_mapping from file: {e}")
+            raise
+    else:
+        logger.info("No node rank mapping provided. Automatically set via vLLM")
+    
+    # 파이프라인 병렬 레이어 파티션 정보를 확인합니다
+    if hasattr(args, 'pp_layer_partition') and args.pp_layer_partition:
+        try:
+            # 콤마로 구분된 정수 문자열인지 검증합니다
+            pp_layers = [int(layer) for layer in args.pp_layer_partition.split(',')]
+            os.environ["VLLM_PP_LAYER_PARTITION"] = args.pp_layer_partition
+            logger.info(f"VLLM_PP_LAYER_PARTITION is set to {os.environ['VLLM_PP_LAYER_PARTITION']}")
+        except ValueError as e:
+            logger.error(f"Invalid pp-layer-partition format. Must be comma-separated integers: {e}")
+            raise
 
     async with build_async_engine_client_from_engine_args(
-            engine_args, args.disable_frontend_multiprocessing) as engine:
+            engine_args, args.disable_frontend_multiprocessing, node_rank_mapping) as engine:
         yield engine
 
 
@@ -147,6 +179,7 @@ async def build_async_engine_client(
 async def build_async_engine_client_from_engine_args(
     engine_args: AsyncEngineArgs,
     disable_frontend_multiprocessing: bool = False,
+    node_rank_mapping: Optional[Dict[str, int]] = None,
 ) -> AsyncIterator[EngineClient]:
     """
     Create EngineClient, either:
@@ -159,6 +192,50 @@ async def build_async_engine_client_from_engine_args(
     # Create the EngineConfig (determines if we can use V1).
     usage_context = UsageContext.OPENAI_API_SERVER
     vllm_config = engine_args.create_engine_config(usage_context=usage_context)
+    
+    # Ray를 통한 노드 배치 그룹을 설정합니다 (노드 매핑이 제공된 경우)
+    if node_rank_mapping is not None:
+        try:
+            import ray
+            logger.info("Setting up Ray placement group with provided node mapping")
+            
+            if not ray.is_initialized():
+                ray.init(address="auto")
+            
+            ips = list(node_rank_mapping.keys())
+            
+            placement_group_specs = []
+            for ip in ips:
+                placement_group_specs.append({
+                    'GPU': 1,
+                    f"node:{ip}": 0.001  # 특정 노드를 사용하겠다는 의미
+                })
+            
+            placement_group = ray.util.placement_group(placement_group_specs, strategy="STRICT_SPREAD")
+            ray.get(placement_group.ready())
+            
+            bundle_to_node = {}
+            for bundle_id, bundle in enumerate(placement_group.bundle_specs):
+                for resource_key in bundle:
+                    if resource_key.startswith("node:"):
+                        node_ip = resource_key[5:]  # 'node:172.31.16.230' -> '172.31.16.230'
+                        bundle_to_node[bundle_id] = node_ip
+            
+            bundle_indices = []
+            for rank in range(len(node_rank_mapping)):
+                for bundle_idx, node_ip in bundle_to_node.items():
+                    if node_rank_mapping[node_ip] == rank:
+                        bundle_indices.append(str(bundle_idx))
+                        break
+            
+            os.environ["VLLM_RAY_BUNDLE_INDICES"] = ",".join(bundle_indices)
+            logger.info(f"VLLM_RAY_BUNDLE_INDICES is set to {os.environ['VLLM_RAY_BUNDLE_INDICES']}")
+            logger.info(f"Bundle specs: {placement_group.bundle_specs}")
+            vllm_config.parallel_config.placement_group = placement_group
+        except ImportError:
+            logger.error("Ray is not installed. Cannot set up placement group.")
+        except Exception as e:
+            logger.error(f"Failed to set up Ray placement group: {e}")
 
     # V1 AsyncLLM.
     if envs.VLLM_USE_V1:
@@ -948,6 +1025,26 @@ if __name__ == "__main__":
     parser = FlexibleArgumentParser(
         description="vLLM OpenAI-Compatible RESTful API server.")
     parser = make_arg_parser(parser)
+    
+    # 노드 매핑 인자 추가
+    parser.add_argument(
+        "--node-rank-mapping",
+        type=str,
+        default=None,
+        help="Node-to-rank mapping in JSON format string. Example: '{\"172.31.16.230\": 0, \"172.31.24.180\": 1, \"172.31.9.40\": 2}'")
+    parser.add_argument(
+        "--node-rank-mapping-path",
+        type=str,
+        default=None,
+        help="Path to a JSON file containing node-to-rank mapping")
+    
+    # 파이프라인 병렬 레이어 파티션 인자 추가
+    parser.add_argument(
+        "--pp-layer-partition",
+        type=str,
+        default=None,
+        help="Pipeline parallel layer partition configuration as comma-separated integers. Example: '12,14,6'")
+    
     args = parser.parse_args()
     validate_parsed_serve_args(args)
 
