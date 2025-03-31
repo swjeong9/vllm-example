@@ -212,7 +212,9 @@ async def build_async_engine_client_from_engine_args(
                 })
             
             placement_group = ray.util.placement_group(placement_group_specs, strategy="STRICT_SPREAD")
+            logger.info(f"Getting placement group...: {placement_group}")
             ray.get(placement_group.ready())
+            logger.info(f"Placement group ready: {placement_group}")
             
             bundle_to_node = {}
             for bundle_id, bundle in enumerate(placement_group.bundle_specs):
