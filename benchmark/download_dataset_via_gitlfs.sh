@@ -19,8 +19,6 @@ fi
 url=$1
 output_dir=$2
 
-git clone $url $output_dir
+mkdir -p $output_dir
 
-cd $output_dir
-git lfs intall
-git lfs pull
+git clone $url $output_dir
