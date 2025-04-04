@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] [C
 
 MANAGER_HOST = '127.0.0.1'
 MANAGER_PORT = 50001
-MANAGER_AUTHKEY = b'secret_authkey'
+MANAGER_AUTHKEY = b'temp_authkey'
 
 class TensorManager(BaseManager):
     pass

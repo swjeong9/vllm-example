@@ -1,11 +1,9 @@
 import torch
 from transformers import LlamaForCausalLM
 import time
-import logging # logging 모듈 임포트
-# import socket # 제거
-# import pickle # 제거
+import logging
 from multiprocessing.managers import BaseManager, DictProxy
-import torch.multiprocessing as mp # 추가
+import torch.multiprocessing as mp
 
 # 기본 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] [Server] - %(message)s')
@@ -13,7 +11,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] [S
 # Manager 설정
 MANAGER_HOST = '127.0.0.1'
 MANAGER_PORT = 50001 # 포트 변경 (기존 소켓 포트와 겹치지 않게)
-MANAGER_AUTHKEY = b'secret_authkey' # 인증키 설정 (바이트 문자열)
+MANAGER_AUTHKEY = b'temp_authkey' # 인증키 설정 (바이트 문자열)
 
 # 공유 데이터를 담을 딕셔너리
 shared_tensor_data = {}
@@ -44,9 +42,12 @@ def main():
     logging.info("Loading model directly in the main process...")
     model_name = "meta-llama/Llama-3.2-1B-Instruct"
     try:
+        logging.info(f"Starting model loading: {model_name}")
+        load_start_time = time.time()
         model = LlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16).to('cuda')
         model.eval()
-        logging.info(f"Model '{model_name}' loaded to CUDA.")
+        load_end_time = time.time()
+        logging.info(f"Model '{model_name}' loaded to CUDA in {load_end_time - load_start_time:.2f} seconds.")
     except Exception as e:
         logging.error(f"Error loading model: {e}")
         return
@@ -61,7 +62,6 @@ def main():
                     param.share_memory_()
                     # 공유 딕셔너리에 텐서 자체를 저장
                     shared_tensor_data[name] = param
-                    # 상세 정보 로깅 (필요시 DEBUG 레벨로 조정 가능)
                     logging.info(f"Shared tensor prepared: {name} (Size: {param.size()}, Norm: {param.norm().item():.4f}, Device: {param.device})")
                     shared_count += 1
                 except Exception as e:
@@ -77,16 +77,15 @@ def main():
     manager = TensorManager(address=(MANAGER_HOST, MANAGER_PORT), authkey=MANAGER_AUTHKEY)
 
     try:
-        # 매니저 서버 시작 (serve_forever()는 블로킹 호출)
+        # 매니저 서버 시작
         server = manager.get_server()
         logging.info("Manager server running. Waiting for client connections...")
         logging.info("Press Ctrl+C to stop.")
-        server.serve_forever()
+        server.serve_forever() # 블로킹 호출
 
     except OSError as bind_e:
         logging.error(f"Failed to bind manager server: {bind_e}. Port {MANAGER_PORT} might be in use.")
     except KeyboardInterrupt:
-        # KeyboardInterrupt는 명시적으로 INFO 레벨로 남겨두어 종료 시 확인 용이하게 함
         logging.info("Received Ctrl+C. Shutting down manager server...")
     except Exception as e:
         logging.exception(f"An unexpected error occurred in manager server loop: {e}") # exception()은 스택 트레이스 포함
@@ -95,5 +94,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # 주의: share_memory_()는 텐서를 제자리에서 변경합니다.
     main()
