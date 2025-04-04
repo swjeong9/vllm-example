@@ -1,98 +1,99 @@
 import torch
 from transformers import LlamaForCausalLM
 import time
-import socket
-import pickle
+import logging # logging 모듈 임포트
+# import socket # 제거
+# import pickle # 제거
+from multiprocessing.managers import BaseManager, DictProxy
+import torch.multiprocessing as mp # 추가
 
-# Manager를 위한 주소 및 인증키 설정 (예시)
+# 기본 로깅 설정
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] [Server] - %(message)s')
+
+# Manager 설정
 MANAGER_HOST = '127.0.0.1'
-MANAGER_PORT = 50000
+MANAGER_PORT = 50001 # 포트 변경 (기존 소켓 포트와 겹치지 않게)
+MANAGER_AUTHKEY = b'secret_authkey' # 인증키 설정 (바이트 문자열)
+
+# 공유 데이터를 담을 딕셔너리
+shared_tensor_data = {}
+
+# 공유 데이터를 반환하는 함수
+def get_shared_tensors():
+    return shared_tensor_data
+
+# 커스텀 매니저 클래스
+class TensorManager(BaseManager):
+    pass
+
+# 매니저에 공유 데이터 접근 함수 등록
+# 'get_tensors' 라는 이름으로 함수를 등록하고, DictProxy를 사용하도록 지정합니다.
+TensorManager.register('get_tensors', callable=get_shared_tensors, proxytype=DictProxy)
+
 
 def main():
-    print("[Server] Loading model directly in the main process...")
+    # 중요: 멀티프로세싱 시작 방법 설정 (fork가 CUDA와 더 잘 동작하는 경향이 있음)
+    # 시스템 기본값이 spawn일 수 있으므로 명시적으로 설정하는 것이 좋을 수 있습니다.
+    try:
+        mp.set_start_method('fork', force=True)
+        logging.info("Set multiprocessing start method to 'fork'.")
+    except RuntimeError:
+        logging.warning("Could not set start method to 'fork'. Using default.")
+
+
+    logging.info("Loading model directly in the main process...")
     model_name = "meta-llama/Llama-3.2-1B-Instruct"
     try:
         model = LlamaForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16).to('cuda')
         model.eval()
-        print(f"[Server] Model '{model_name}' loaded to CUDA.")
+        logging.info(f"Model '{model_name}' loaded to CUDA.")
     except Exception as e:
-        print(f"[Server] Error loading model: {e}")
+        logging.error(f"Error loading model: {e}")
         return
 
-    ipc_info_dict = {}
-    print("[Server] Sharing model parameters via IPC...")
+    logging.info("Sharing model parameters via IPC (using share_memory_)...")
+    shared_count = 0
     with torch.no_grad():
         for name, param in model.named_parameters():
             if param.is_cuda:
                 try:
-                    # 텐서의 저장소를 공유 가능하게 만듦
-                    # share_memory_()는 텐서 자체를 변경하고, 공유 정보를 얻기 위해 내부 storage 접근 필요
+                    # 텐서를 공유 메모리로 이동 (내부적으로 IPC 준비)
                     param.share_memory_()
-                    # 공유 정보 추출 (주의: 내부 API 사용 가능성)
-                    # PyTorch 버전에 따라 storage()._share_cuda_() 또는 유사한 방식 필요
-                    # 여기서는 storage().share_cuda_() 가 있다고 가정 (최신 버전 확인 필요)
-                    # handle = param.storage().share_cuda_() # 반환값 확인 필요
-
-                    # PyTorch 1.7+ 방식 시도 (내부 API 사용)
-                    # storage() -> untyped_storage() 로 변경될 수 있음
-                    storage = param.storage()
-                    handle = storage._share_cuda_() # 내부 API: (device_ptr, handle, size_bytes)
-                    # 실제 핸들 바이트 추출 필요
-                    # handle[1] 이 실제 핸들일 수 있음 (버전 확인 필수)
-                    ipc_handle_bytes = handle[1] # 핸들 바이트 추출 가정
-
-                    ipc_info_dict[name] = {
-                        'handle': ipc_handle_bytes,
-                        'size': tuple(param.size()), # size는 튜플로
-                        'dtype': param.dtype,
-                        'device_index': param.device.index
-                    }
-                    print(f"[Server]   Shared tensor: {name}")
+                    # 공유 딕셔너리에 텐서 자체를 저장
+                    shared_tensor_data[name] = param
+                    # 상세 정보 로깅 (필요시 DEBUG 레벨로 조정 가능)
+                    logging.info(f"Shared tensor prepared: {name} (Size: {param.size()}, Norm: {param.norm().item():.4f}, Device: {param.device})")
+                    shared_count += 1
                 except Exception as e:
-                    print(f"[Server]   Failed to share tensor {name}: {e}")
+                    logging.error(f"Failed to share tensor {name}: {e}")
             # else: Non-CUDA 파라미터는 무시
 
-    print(f"[Server] Shared {len(ipc_info_dict)} tensors.")
+    logging.info(f"Prepared {shared_count} tensors for sharing.")
+    if not shared_tensor_data:
+        logging.warning("No tensors were prepared for sharing. Exiting.")
+        return
 
-    # 간단한 TCP 소켓 서버 설정
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind((MANAGER_HOST, MANAGER_PORT))
-            s.listen()
-            print(f"[Server] TCP server listening on {MANAGER_HOST}:{MANAGER_PORT}...")
+    logging.info(f"Starting TensorManager server at {MANAGER_HOST}:{MANAGER_PORT}...")
+    manager = TensorManager(address=(MANAGER_HOST, MANAGER_PORT), authkey=MANAGER_AUTHKEY)
 
-            while True: # 여러 클라이언트 처리 가능 (여기서는 하나만 처리)
-                conn, addr = s.accept()
-                with conn:
-                    print(f"[Server] Connected by {addr}")
-                    print("[Server] Sending IPC handle information...")
-                    try:
-                        # IPC 정보 딕셔너리를 피클링하여 전송
-                        serialized_data = pickle.dumps(ipc_info_dict)
-                        # 데이터 크기 먼저 전송 (큰 데이터 대비)
-                        data_size = len(serialized_data).to_bytes(8, 'big')
-                        conn.sendall(data_size)
-                        conn.sendall(serialized_data)
-                        print("[Server] IPC information sent successfully.")
-                        # 전송 후 바로 종료하지 않고, 텐서를 계속 유지해야 함
-                        # 클라이언트가 작업을 마칠 때까지 대기하는 로직 추가 가능
-                        # 여기서는 무한 루프로 서버 유지 (Ctrl+C로 종료)
-                        print("[Server] Keeping tensors alive. Press Ctrl+C to stop.")
-                        while True:
-                            time.sleep(10)
-                    except (socket.error, pickle.PicklingError, Exception) as send_e:
-                        print(f"[Server] Error sending data: {send_e}")
-                    # break # 하나의 클라이언트만 처리 후 서버 종료 원할 시
-        except OSError as bind_e:
-            print(f"[Server] Failed to bind socket: {bind_e}. Port might be in use.")
-        except KeyboardInterrupt:
-            print("[Server] Stopping server...")
-        # finally 블록은 with 문이 소켓을 자동으로 닫으므로 필수는 아님
-        # finally:
-        #      print("[Server] Server shutting down.")
+    try:
+        # 매니저 서버 시작 (serve_forever()는 블로킹 호출)
+        server = manager.get_server()
+        logging.info("Manager server running. Waiting for client connections...")
+        logging.info("Press Ctrl+C to stop.")
+        server.serve_forever()
+
+    except OSError as bind_e:
+        logging.error(f"Failed to bind manager server: {bind_e}. Port {MANAGER_PORT} might be in use.")
+    except KeyboardInterrupt:
+        # KeyboardInterrupt는 명시적으로 INFO 레벨로 남겨두어 종료 시 확인 용이하게 함
+        logging.info("Received Ctrl+C. Shutting down manager server...")
+    except Exception as e:
+        logging.exception(f"An unexpected error occurred in manager server loop: {e}") # exception()은 스택 트레이스 포함
+    finally:
+        logging.info("Server shutting down.")
+
 
 if __name__ == "__main__":
-    # 주의: share_memory_ 및 _share_cuda_ API는 버전에 따라 매우 다를 수 있음
-    # 실제 사용 시 PyTorch 버전에 맞는 정확한 API 확인 필수
+    # 주의: share_memory_()는 텐서를 제자리에서 변경합니다.
     main()
