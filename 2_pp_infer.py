@@ -6,9 +6,10 @@ import ray
 from torch.distributed import destroy_process_group
 
 node_rank_mapping = {
-    "172.31.16.230": 0,
-    "172.31.9.40": 2,
-    "172.31.24.180": 1,
+    "172.31.20.243": 0,
+    "172.31.16.139": 1,
+    "172.31.25.98": 2,
+    "172.31.26.28": 3
 }
 
 def create_placement_group_and_bundle_indices():
@@ -47,13 +48,13 @@ def create_placement_group_and_bundle_indices():
     print(f"bundle specs : {placement_group.bundle_specs}")
 
     # 우선 매뉴얼하게 박아보자
-    os.environ["VLLM_PP_LAYER_PARTITION"] = "12,14,6"
+    os.environ["VLLM_PP_LAYER_PARTITION"] = "16,16"
 
     return placement_group
 
 
 async def main():
-    model = "meta-llama/Llama-2-7b-chat-hf"
+    model = "meta-llama/Meta-Llama-3-8B-Instruct"
     task = "generate"
     dtype = "float16"
 
@@ -61,8 +62,9 @@ async def main():
         "model": model,
         "task": task,
         "dtype": dtype,
-        "tensor_parallel_size": 1,
-        "pipeline_parallel_size": 3,
+        "parallel_strategy": [2, 2],
+        # "tensor_parallel_size": 1,
+        # "pipeline_parallel_size": 1,
     }
     engine_args = AsyncEngineArgs(**engine_args)
     usage_context = UsageContext.ENGINE_CONTEXT
