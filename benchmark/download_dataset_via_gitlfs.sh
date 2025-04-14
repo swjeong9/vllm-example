@@ -6,7 +6,7 @@
 
 if [ $# -ne 2 ]; then
     echo "Usage: $0 <url> <output_dir>"
-    echo "Example: $0 https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered ./sharegpt"
+    echo "Example: $0 https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered ./dataset/sharegpt/ShareGPT_Vicuna_unfiltered"
     exit 1
 fi
 
