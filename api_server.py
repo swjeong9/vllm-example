@@ -196,43 +196,8 @@ async def build_async_engine_client_from_engine_args(
     # Ray를 통한 노드 배치 그룹을 설정합니다 (노드 매핑이 제공된 경우)
     if node_rank_mapping is not None:
         try:
-            import ray
-            logger.info("Setting up Ray placement group with provided node mapping")
-            
-            if not ray.is_initialized():
-                ray.init(address="auto")
-            
-            ips = list(node_rank_mapping.keys())
-            
-            placement_group_specs = []
-            for ip in ips:
-                placement_group_specs.append({
-                    'GPU': 1,
-                    f"node:{ip}": 0.001  # 특정 노드를 사용하겠다는 의미
-                })
-            
-            placement_group = ray.util.placement_group(placement_group_specs, strategy="STRICT_SPREAD")
-            logger.info(f"Getting placement group...: {placement_group}")
-            ray.get(placement_group.ready())
-            logger.info(f"Placement group ready: {placement_group}")
-            
-            bundle_to_node = {}
-            for bundle_id, bundle in enumerate(placement_group.bundle_specs):
-                for resource_key in bundle:
-                    if resource_key.startswith("node:"):
-                        node_ip = resource_key[5:]  # 'node:172.31.16.230' -> '172.31.16.230'
-                        bundle_to_node[bundle_id] = node_ip
-            
-            bundle_indices = []
-            for rank in range(len(node_rank_mapping)):
-                for bundle_idx, node_ip in bundle_to_node.items():
-                    if node_rank_mapping[node_ip] == rank:
-                        bundle_indices.append(str(bundle_idx))
-                        break
-            
-            os.environ["VLLM_RAY_BUNDLE_INDICES"] = ",".join(bundle_indices)
-            logger.info(f"VLLM_RAY_BUNDLE_INDICES is set to {os.environ['VLLM_RAY_BUNDLE_INDICES']}")
-            logger.info(f"Bundle specs: {placement_group.bundle_specs}")
+            from utils import create_placement_group_and_bundle_indices
+            placement_group = create_placement_group_and_bundle_indices(node_rank_mapping)
             vllm_config.parallel_config.placement_group = placement_group
         except ImportError:
             logger.error("Ray is not installed. Cannot set up placement group.")
