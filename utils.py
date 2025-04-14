@@ -6,7 +6,7 @@ from vllm.logger import init_logger
 logger = init_logger(__name__)
 
 def create_placement_group_and_bundle_indices(node_rank_mapping: Dict[str, List[int]]):
-    logger.info(f"Creating placement group and bundle indices from node rank mapping: {node_rank_mapping}")
+    logger.info(f"Creating placement group and bundle indices for node rank mapping: {node_rank_mapping}")
 
     if not ray.is_initialized():
         ray.init(address="auto")
@@ -35,7 +35,9 @@ def create_placement_group_and_bundle_indices(node_rank_mapping: Dict[str, List[
             f"node:{ip}": 0.001 # 특정 노드를 사용하겠다는 의미
         })
     
-    placement_group = ray.util.placement_group(placement_group_specs, strategy="STRICT_SPREAD")
+    # strategy 를 STRICT_SPREAD 로 설정하면 모든 랭크가 다 다른 노드에 분배되어야 함.
+    # 따라서 ray.get 에서 무한대기를 하는 상황이 발생한다. PACK 으로 변경하자.
+    placement_group = ray.util.placement_group(placement_group_specs, strategy="PACK")
     ray.get(placement_group.ready())
 
     # 생성된 번들(bundle)과 할당된 노드 IP 매핑
