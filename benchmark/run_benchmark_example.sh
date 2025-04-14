@@ -6,4 +6,4 @@ python benchmark_serving.py --backend vllm \
     --dataset-path=/home/ubuntu/vllm-example/benchmark/dataset/sharegpt/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_split.json \
     --save-result --save-detailed \
     --seed 42 \
-    --result-dir=./result --metadata pp=1 tp=1 rank0=T4x1
+    --result-dir=./results --metadata pipeline-parallel-strategy=1,4 nodes=g4dn.xlarge,g4dn.12xlarge
