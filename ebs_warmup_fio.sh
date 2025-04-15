@@ -24,7 +24,7 @@ TARGET_DEVICE="/dev/nvme1n1"
 TARGET_FILE="$HOME/.cache/huggingface/hub/models--meta-llama--Llama-3.2-3B/snapshots/13afe5124825b4f3751f836b40dafda64c1ed062/model-00002-of-00002.safetensors"
 
 # 대상 폴더 경로 (WARMUP_TARGET_TYPE 이 'FOLDER'일 경우)
-TARGET_FOLDER="$HOME/.cache/huggingface/hub/models--meta-llama--Llama-3.2-3B"
+TARGET_FOLDER="$HOME/.cache/huggingface/hub/models--meta-llama--Llama-3.2-3B-Instruct"
 
 # fio 에서 사용할 블록 크기 (FILE/DEVICE 타입용)
 BLOCK_SIZE="1M"
