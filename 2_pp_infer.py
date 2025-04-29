@@ -32,6 +32,7 @@ async def main():
         "dtype": dtype,
         "parallel_strategy": [1],
         "enforce_eager": True,
+        "gpu_memory_utilization": 0.7,
         # "tensor_parallel_size": 1,
         # "pipeline_parallel_size": 1,
     }
