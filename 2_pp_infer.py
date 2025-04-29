@@ -1,5 +1,7 @@
 import time
 
+init_end_to_end_start = time.time()
+
 module_loading_start = time.time()
 import os
 from typing import List, Dict
@@ -22,7 +24,7 @@ print(f"total module loading time: {module_loading_end - module_loading_start} s
 node_rank_mapping = json.load(open("node_rank_mapping.json"))
 
 async def main():
-    model = "meta-llama/Llama-3.2-1B-Instruct"
+    model = "meta-llama/Llama-3.2-3B-Instruct"
     task = "generate"
     dtype = "float16"
 
@@ -32,7 +34,7 @@ async def main():
         "dtype": dtype,
         "parallel_strategy": [1],
         "enforce_eager": True,
-        "gpu_memory_utilization": 0.7,
+        "gpu_memory_utilization": 0.5,
         # "tensor_parallel_size": 1,
         # "pipeline_parallel_size": 1,
     }
@@ -55,7 +57,7 @@ async def main():
     end_time = time.time()
     print(f"placement_group loading time by create_placement_group_and_bundle_indices(): {end_time - start_time} seconds")
     vllm_config.parallel_config.placement_group = placement_group
-    os.environ["VLLM_PP_LAYER_PARTITION"] = "16"
+    os.environ["VLLM_PP_LAYER_PARTITION"] = "28"
 
     # 아래 코드에서 tokenizer 와 model 의 safetensor 를 받아오며
     # CUDA graph shape capturing 을 한다.
@@ -64,7 +66,9 @@ async def main():
             usage_context=usage_context,
             disable_log_stats=engine_args.disable_log_stats,
             )
-    
+    init_end_to_end_end = time.time()
+    print(f"Inference Process Init Time: {init_end_to_end_end - init_end_to_end_start} seconds")
+
     prompt = "What is LLM?"
     example_input = {
         "prompt": prompt,
