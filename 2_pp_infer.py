@@ -10,7 +10,7 @@ print(f"vllm loading time: {vllm_loading_end - vllm_loading_start} seconds")
 from vllm.usage.usage_lib import UsageContext
 from torch.distributed import destroy_process_group
 from utils import create_placement_group_and_bundle_indices
-
+import json
 module_loading_end = time.time()
 print(f"total module loading time: {module_loading_end - module_loading_start} seconds")
 # 각 노드 IP에 할당할 rank 리스트를 정의합니다.
@@ -19,12 +19,10 @@ print(f"total module loading time: {module_loading_end - module_loading_start} s
 #     "172.31.10.100": [1, 2], # 172.31.10.100 노드에는 rank 1과 2 할당
 #     "172.31.30.50": [3]    # 172.31.30.50 노드에는 rank 3 할당
 # }
-node_rank_mapping = {
-    "172.31.21.144": [0]
-}
+node_rank_mapping = json.load(open("node_rank_mapping.json"))
 
 async def main():
-    model = "meta-llama/Llama-3.2-3B-Instruct"
+    model = "meta-llama/Llama-3.2-1B-Instruct"
     task = "generate"
     dtype = "float16"
 
@@ -33,6 +31,7 @@ async def main():
         "task": task,
         "dtype": dtype,
         "parallel_strategy": [1],
+        "enforce_eager": True,
         # "tensor_parallel_size": 1,
         # "pipeline_parallel_size": 1,
     }
@@ -55,7 +54,7 @@ async def main():
     end_time = time.time()
     print(f"placement_group loading time by create_placement_group_and_bundle_indices(): {end_time - start_time} seconds")
     vllm_config.parallel_config.placement_group = placement_group
-    os.environ["VLLM_PP_LAYER_PARTITION"] = "28"
+    os.environ["VLLM_PP_LAYER_PARTITION"] = "16"
 
     # 아래 코드에서 tokenizer 와 model 의 safetensor 를 받아오며
     # CUDA graph shape capturing 을 한다.
