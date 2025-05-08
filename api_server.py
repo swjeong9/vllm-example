@@ -993,6 +993,8 @@ if __name__ == "__main__":
         description="vLLM OpenAI-Compatible RESTful API server.")
     parser = make_arg_parser(parser)
     
+    # v0 버전 사용
+    os.environ["VLLM_USE_V1"] = "0"
     # 노드 매핑 인자 추가
     parser.add_argument(
         "--node-rank-mapping",
