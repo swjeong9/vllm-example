@@ -1,5 +1,7 @@
 import time
 
+init_end_to_end_start = time.time()
+
 module_loading_start = time.time()
 import os
 from typing import List, Dict
@@ -10,7 +12,7 @@ print(f"vllm loading time: {vllm_loading_end - vllm_loading_start} seconds")
 from vllm.usage.usage_lib import UsageContext
 from torch.distributed import destroy_process_group
 from utils import create_placement_group_and_bundle_indices
-
+import json
 module_loading_end = time.time()
 print(f"total module loading time: {module_loading_end - module_loading_start} seconds")
 # 각 노드 IP에 할당할 rank 리스트를 정의합니다.
@@ -19,9 +21,7 @@ print(f"total module loading time: {module_loading_end - module_loading_start} s
 #     "172.31.10.100": [1, 2], # 172.31.10.100 노드에는 rank 1과 2 할당
 #     "172.31.30.50": [3]    # 172.31.30.50 노드에는 rank 3 할당
 # }
-node_rank_mapping = {
-    "172.31.21.144": [0]
-}
+node_rank_mapping = json.load(open("node_rank_mapping.json"))
 
 async def main():
     model = "meta-llama/Llama-3.2-3B-Instruct"
@@ -33,6 +33,8 @@ async def main():
         "task": task,
         "dtype": dtype,
         "parallel_strategy": [1],
+        "enforce_eager": True,
+        "gpu_memory_utilization": 0.5,
         # "tensor_parallel_size": 1,
         # "pipeline_parallel_size": 1,
     }
@@ -64,7 +66,9 @@ async def main():
             usage_context=usage_context,
             disable_log_stats=engine_args.disable_log_stats,
             )
-    
+    init_end_to_end_end = time.time()
+    print(f"Inference Process Init Time: {init_end_to_end_end - init_end_to_end_start} seconds")
+
     prompt = "What is LLM?"
     example_input = {
         "prompt": prompt,
