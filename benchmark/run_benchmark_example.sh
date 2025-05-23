@@ -7,7 +7,7 @@ python benchmark_serving.py --backend vllm \
     --save-result --save-detailed \
     --num-prompts 1000 \
     --seed 42 \
-    --metric-percentiles "25,50,75,100" \
+    --metric-percentiles "25,50,75,99" \
     --percentile-metrics ttft,tpot,itl,e2el \
     # --request-rate=0.1 \
     # --max-concurrency=4 \

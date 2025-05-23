@@ -1,8 +1,11 @@
+# Single Threaded Tensor Store Server
+
+import argparse
 import glob
 import json
 from typing import List, Optional, Union
 import huggingface_hub.constants
-from huggingface_hub import HfFileSystem, hf_hub_download, snapshot_download
+from huggingface_hub import HfFileSystem, snapshot_download
 import tempfile
 import os
 import hashlib
@@ -20,7 +23,6 @@ import torch
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] [Server] - %(message)s')
 
-MODEL_NAME = "meta-llama/Llama-3.2-3B-Instruct"
 TENSOR_DICT = {}
 
 MANAGER_HOST = '127.0.0.1'
@@ -30,14 +32,14 @@ MANAGER_AUTHKEY = b'param_store'
 DTYPE = torch.float16
 
 # PP Parallelism 을 위해서
-START_LAYER_ID = 0
-END_LAYER_ID = 28 # 마지막 포함하지 않음
-TOTAL_LAYER_NUM = 28
+START_LAYER_ID = -1
+END_LAYER_ID = -1 # 마지막 포함하지 않음
+TOTAL_LAYER_NUM = -1
 # TP Parallelism 을 위해서
-TENSOR_PARALLEL_SIZE = 1
-TENSOR_PARALLEL_RANK = 0
-LOCAL_RANK = 0
-DEVICE = f"cuda:{LOCAL_RANK}"
+TENSOR_PARALLEL_SIZE = -1
+TENSOR_PARALLEL_RANK = -1
+LOCAL_RANK = -1
+DEVICE="cuda"
 # 열 단위로 쪼개는 경우 1번째 차원 (0부터 세면 0번째 차원) 을 쪼개야 한다 -> output dim
 # 행 단위로 쪼개는 경우 2번째 차원 (0부터 세면 1번째 차원) 을 쪼개야 한다 -> input dim
 # vLLM 에서는 input_dim 이 1, output_dim 이 0이다.
@@ -45,7 +47,6 @@ COLUMN_WAY = 0
 ROW_WAY = 1
 DIV_COLUMN_WISE_LIST = ["q_proj", "k_proj", "v_proj", "gate_proj", "up_proj"]
 DIV_ROW_WISE_LIST = ["o_proj", "down_proj"]
-EMBEDDING_TENSOR_NAME = "model.embed_tokens.weight"
 VOCAB_PADDING_SIZE = 64
 
 def get_tensor_dict():
@@ -146,7 +147,43 @@ def get_tensor_idx_range(dim: int) -> torch.Tensor:
     shard_idx_end = shard_idx_start + per_shard_dim_size
     return shard_idx_start, shard_idx_end, per_shard_dim_size
 
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-name", type=str, required=True)
+    parser.add_argument("--tensor-parallel-size", type=int, default=1)
+    parser.add_argument("--local-rank", type=int, default=0)
+    parser.add_argument("--dtype", type=str, default="float16")
+    parser.add_argument("--start-layer-id", type=int, default=0)
+    parser.add_argument("--end-layer-id", type=int, default=-1)
+    return parser.parse_args()
+
+def set_global_variables(args: argparse.Namespace, config_dict: dict):
+    global TENSOR_PARALLEL_SIZE, LOCAL_RANK, DTYPE, START_LAYER_ID, END_LAYER_ID, TOTAL_LAYER_NUM, DEVICE, TENSOR_PARALLEL_RANK
+    TENSOR_PARALLEL_SIZE = args.tensor_parallel_size
+    LOCAL_RANK = args.local_rank
+    TENSOR_PARALLEL_RANK = args.local_rank
+    DEVICE = f"cuda:{LOCAL_RANK}"
+    TOTAL_LAYER_NUM = config_dict["num_hidden_layers"]
+    START_LAYER_ID = args.start_layer_id
+    END_LAYER_ID = args.end_layer_id
+    if END_LAYER_ID == -1:
+        END_LAYER_ID = config_dict["num_hidden_layers"]
+
+    if args.dtype == "float16":
+        DTYPE = torch.float16
+    elif args.dtype == "float32":
+        DTYPE = torch.float32
+    elif args.dtype == "bfloat16":
+        DTYPE = torch.bfloat16
+    else:
+        raise ValueError(f"Unsupported dtype: {args.dtype}")
+
 def main():
+    args = parse_args()
+    model_name = args.model_name
+    logging.info(f"args: {args}")
+
     try:
         mp.set_start_method('fork', force=True)
         logging.info("Set multiprocessing start method to 'fork'.")
@@ -158,7 +195,7 @@ def main():
     # 모델 다운로딩
     download_start = time.perf_counter()
     allow_patterns = ["*.safetensors", "*.bin"]
-    hf_folder = download_weights_from_hf(MODEL_NAME, None, allow_patterns)
+    hf_folder = download_weights_from_hf(model_name, None, allow_patterns)
     hf_weights_files: List[str] = []
     for pattern in allow_patterns:
         hf_weights_files += glob.glob(os.path.join(hf_folder, pattern))
@@ -172,6 +209,9 @@ def main():
     with open(config_path, "r") as f:
         config_dict = json.load(f)
     tie_word_embeddings = config_dict["tie_word_embeddings"]
+    logging.info(f"model config: {config_dict}")
+    
+    set_global_variables(args, config_dict)
 
     load_start = time.perf_counter()
     # 모델 로딩 해서 텐서에 저장
