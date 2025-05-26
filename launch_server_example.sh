@@ -9,4 +9,5 @@ local_ip=$(hostname -I | awk '{print $1}')
 
 python api_server.py --model=meta-llama/Llama-3.1-8B --host=127.0.0.1 --port=8000  \
     --dtype=float16 --max_model_len=4096 --node-rank-mapping-path=./node_rank_mapping.json \
-    --pp-layer-partition="32" --parallel-strategy=1 --gpu-memory-utilization=0.3
+    --pp-layer-partition="32" --parallel-strategy=1 --gpu-memory-utilization=0.3 \
+    --override-generation-config='{"temperature": 0.0}'
