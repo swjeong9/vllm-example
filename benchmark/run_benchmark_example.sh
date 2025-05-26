@@ -18,9 +18,10 @@
 python benchmark_serving.py --backend vllm \
     --model=meta-llama/Llama-3.1-8B \
     --dataset-name=random \
+    --random-input-len=1024 \
+    --random-output-len=128 \
     --num-prompts 1024 \
-    --seed 42 \
     --metric-percentiles="25,50,75,99" \
     --percentile-metrics="ttft,tpot,itl,e2el" \
-    # --save-result --save-detailed \
-    # --result-dir=./results --metadata pipeline-parallel-strategy=1,4 nodes=g4dn.xlarge,g4dn.12xlarge
+    --save-result --save-detailed \
+    --result-dir=./results --metadata parallel-strategy=1 layer-partition="32" nodes=1xg6.xlarge

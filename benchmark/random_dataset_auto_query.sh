@@ -18,12 +18,13 @@ BASE_CMD="python benchmark_serving.py --backend vllm \
     --num-prompts=$1 \
     --random-input-len=$2 \
     --random-output-len=$3 \
+    --ignore-eos \
     --metric-percentiles="25,50,75,99" \
     --percentile-metrics="ttft,tpot,itl,e2el" \
     --save-result --save-detailed \
     --result-dir=./results"
 
-CONCURRENCY_VALUES=(1 2 4 8 16 32 64 128 256)
+CONCURRENCY_VALUES=(16 32 64 128 256)
 
 # --max-concurrency 값을 1부터 8까지 반복
 for i in "${CONCURRENCY_VALUES[@]}"
@@ -33,7 +34,7 @@ do
   echo "=================================================="
 
   # 현재 concurrency 값으로 명령어 완성
-  FULL_CMD="$BASE_CMD --max-concurrency=$i --metadata parallel-strategy=1 nodes=1xg6.xlarge max-concurrency=$i"
+  FULL_CMD="$BASE_CMD --max-concurrency=$i --metadata parallel-strategy=1 layer-partition=32 nodes=1xg6.xlarge max-concurrency=$i"
 
   # 명령어 실행
   eval $FULL_CMD
