@@ -1,9 +1,75 @@
 import ray
-from typing import Dict, List
+from typing import Dict, List, Optional
 import os
 from vllm.logger import init_logger
+import subprocess
 
 logger = init_logger(__name__)
+
+def run_server_remote(hostname: str, username: str, command_to_execute: str, log_file: str = "tensor_server.log", 
+                      ssh_key_path: Optional[str] = None, ssh_port: int = 22) -> tuple[bool, Optional[subprocess.Popen]]:
+    """
+    최초 접속 시 fingerprint 확인을 비활성화합니다.
+
+    :param hostname: 원격 서버 주소 (IP 또는 도메인 이름)
+    :param username: SSH 사용자 이름
+    :param command_to_execute: 원격 서버에서 실행할 전체 명령어 문자열 (cd, source, python 등 포함)
+    :param log_file: 출력을 저장할 원격 서버의 로그 파일 경로
+    :param ssh_key_path: (선택 사항) 사용할 특정 SSH 개인 키 파일 경로
+    :param ssh_port: (선택 사항) SSH 포트
+    :return: 성공 여부 (True/False), 메시지 또는 에러
+    """
+    if not command_to_execute:
+        logger.error(f"[{hostname}] 실행할 명령어가 제공되지 않았습니다.")
+        return False, "실행할 명령어가 제공되지 않았습니다."
+
+    # SSH 명령어 기본 구성
+    ssh_command_parts = [
+        "ssh",
+        "-p", str(ssh_port),
+        "-o", "StrictHostKeyChecking=no",  # fingerprint 확인 비활성화 (또는 accept-new)
+        # "-o", "UserKnownHostsFile=/dev/null", # known_hosts 파일을 사용하지 않음 (더 강력한 비활성화)
+    ]
+
+    # 특정 SSH 키를 사용하는 경우
+    if ssh_key_path:
+        ssh_command_parts.extend(["-i", ssh_key_path])
+
+    # 사용자@호스트 추가
+    ssh_command_parts.append(f"{username}@{hostname}")
+
+    log_file_dir = os.path.dirname(log_file)
+    if not os.path.exists(log_file_dir):
+        os.makedirs(log_file_dir)
+
+    # 원격에서 실행할 포그라운드 명령어 구성 (로그 리디렉션 포함)
+    remote_shell_command = f"{command_to_execute} > {log_file} 2>&1"
+    
+    # 최종 SSH 명령어 (원격 쉘 명령이를 인자로 전달)
+    ssh_command_parts.append(remote_shell_command)
+
+    try:
+        # Popen은 비동기적으로 프로세스를 시작합니다.
+        process = subprocess.Popen(ssh_command_parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # &를 사용하지 않으므로, SSH 세션은 원격 명령이 종료될 때까지 유지됩니다.
+        # mt_tensor_store_server.py는 스스로 종료되지 않는 서버이므로, 이 SSH 세션은 계속 열려있게 됩니다.
+        logger.info(f"[{hostname}] 원격 명령어를 포그라운드로 제출 요청했습니다. 로그는 원격 서버의 '{log_file}' 파일을 확인하세요.")
+        logger.info(f"[{hostname}] SSH 프로세스 PID: {process.pid}. 이 세션은 원격 서버가 실행되는 동안 유지됩니다.")
+        return True, process
+
+    except FileNotFoundError:
+        # ssh 명령어를 찾을 수 없는 경우 (로컬 시스템에 ssh 클라이언트가 설치되지 않음)
+        logger.error(f"[{hostname}] 오류: 'ssh' 명령어를 찾을 수 없습니다. SSH 클라이언트가 설치되어 있는지 확인하세요.")
+        return False, None
+    except subprocess.CalledProcessError as e:
+        # check=True 사용 시 발생 (여기서는 Popen을 사용하므로 직접 발생 X, communicate 후 returncode로 판단)
+        logger.error(f"[{hostname}] 명령어 실행 중 오류 발생: {e}")
+        logger.error(f"STDOUT: {e.stdout.decode().strip() if e.stdout else ''}")
+        logger.error(f"STDERR: {e.stderr.decode().strip() if e.stderr else ''}")
+        return False, f"명령어 실행 오류: {e.stderr.decode().strip() if e.stderr else str(e)}"
+    except Exception as e:
+        logger.error(f"[{hostname}] 예기치 않은 오류 발생: {e}")
+        return False, None
 
 def create_placement_group_and_bundle_indices(node_rank_mapping: Dict[str, List[int]]):
     logger.info(f"Creating placement group and bundle indices for node rank mapping: {node_rank_mapping}")

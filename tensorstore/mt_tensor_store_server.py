@@ -35,7 +35,7 @@ MANAGER_AUTHKEY = b'param_store'
 DTYPE = torch.float16
 
 NUM_FILE_WORKERS = 4
-NUM_TENSOR_WORKERS = 8
+NUM_TENSOR_WORKERS = 16
 
 # PP Parallelism 을 위해서
 START_LAYER_ID = -1
