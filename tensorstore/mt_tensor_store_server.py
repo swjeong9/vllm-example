@@ -296,19 +296,20 @@ def load_tensors_from_file(st_file: str, tie_word_embeddings: bool):
         # 텐서별로 병렬 처리 (IO intensive한 get_slice 부분)
         max_tensor_workers = min(NUM_TENSOR_WORKERS, len(valid_tensors))  # 텐서별 워커 수 제한
         
-        with ThreadPoolExecutor(max_workers=max_tensor_workers) as tensor_executor:
-            tensor_futures = []
-            
-            for tensor_name in valid_tensors:
-                # get_slice는 IO intensive하므로 이것도 병렬로 처리
-                future = tensor_executor.submit(lambda tn=tensor_name: (tn, f.get_slice(tn)))
-                tensor_futures.append(future)
-            
-            # 완료된 순서대로 텐서 처리
-            for future in as_completed(tensor_futures):
-                tensor_name, tensor_slice = future.result()
-                # 실제 텐서 처리는 메인 스레드에서 (또는 별도 처리)
-                process_tensor(tensor_name, tensor_slice, tie_word_embeddings)
+        if not max_tensor_workers == 0:
+            with ThreadPoolExecutor(max_workers=max_tensor_workers) as tensor_executor:
+                tensor_futures = []
+                
+                for tensor_name in valid_tensors:
+                    # get_slice는 IO intensive하므로 이것도 병렬로 처리
+                    future = tensor_executor.submit(lambda tn=tensor_name: (tn, f.get_slice(tn)))
+                    tensor_futures.append(future)
+                
+                # 완료된 순서대로 텐서 처리
+                for future in as_completed(tensor_futures):
+                    tensor_name, tensor_slice = future.result()
+                    # 실제 텐서 처리는 메인 스레드에서 (또는 별도 처리)
+                    process_tensor(tensor_name, tensor_slice, tie_word_embeddings)
     
     logging.info(f"Finished loading file: {st_file}")
 
@@ -355,16 +356,17 @@ def main():
         max_file_workers = min(NUM_FILE_WORKERS, len(hf_weights_files))  # GPU 메모리 고려하여 파일 워커 수 제한
         logging.info(f"Using {max_file_workers} file workers for {len(hf_weights_files)} files")
         
-        with ThreadPoolExecutor(max_workers=max_file_workers) as file_executor:
-            file_futures = []
-            
-            for st_file in hf_weights_files:
-                future = file_executor.submit(load_tensors_from_file, st_file, tie_word_embeddings)
-                file_futures.append(future)
-            
-            # 모든 파일 로딩 완료 대기
-            for future in as_completed(file_futures):
-                future.result()  # 예외 발생 시 여기서 catch
+        if not max_file_workers == 0:
+            with ThreadPoolExecutor(max_workers=max_file_workers) as file_executor:
+                file_futures = []
+                
+                for st_file in hf_weights_files:
+                    future = file_executor.submit(load_tensors_from_file, st_file, tie_word_embeddings)
+                    file_futures.append(future)
+                
+                # 모든 파일 로딩 완료 대기
+                for future in as_completed(file_futures):
+                    future.result()  # 예외 발생 시 여기서 catch
                 
     except Exception as e:
         logging.error(f"Model Loading 중 Error 발생: {e}")

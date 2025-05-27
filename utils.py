@@ -1,10 +1,10 @@
 import ray
 from typing import Dict, List, Optional
 import os
-from vllm.logger import init_logger
 import subprocess
+import logging
 
-logger = init_logger(__name__)
+logger = logging.getLogger(__name__)
 
 def run_server_remote(hostname: str, username: str, command_to_execute: str, log_file: str = "tensor_server.log", 
                       ssh_key_path: Optional[str] = None, ssh_port: int = 22) -> tuple[bool, Optional[subprocess.Popen]]:

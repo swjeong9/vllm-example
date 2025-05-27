@@ -4,11 +4,11 @@ import sys
 import os
 import json
 import subprocess
+import shlex # shlex 모듈 임포트
 from typing import Optional, Dict, List, Tuple
-from vllm.logger import init_logger
+import logging
 
-logger = init_logger(__name__)
-
+logger = logging.getLogger(__name__)
 # 현재 파일의 절대 경로를 가져옵니다.
 current_file_path = os.path.abspath(__file__)
 # 부모 디렉터리 (tensorstore 폴더의 부모)
@@ -33,6 +33,12 @@ if __name__ == "__main__":
     # pp-partition 은 , 로 구분된 int 리스트임.
     pp_partition = [int(x) for x in args.pp_partition.split(",")]
 
+    # 디버깅을 위한 print 문 추가
+    print(f"DEBUG: len(node_rank_mapping) = {len(node_rank_mapping)}")
+    print(f"DEBUG: len(pp_partition) = {len(pp_partition)}")
+    print(f"DEBUG: node_rank_mapping path = {args.node_rank_mapping_path}")
+    print(f"DEBUG: pp_partition input = {args.pp_partition}")
+
     # json 의 key 수 (node 수) 와 pp-partition 의 length 가 같아야 함.
     assert len(node_rank_mapping) == len(pp_partition), "node 수와 pp-partition 의 length 가 같아야 함."
 
@@ -45,11 +51,11 @@ if __name__ == "__main__":
             base_server_command = (
                 f"{PYTHON} "
                 f"{TENSOR_SERVER_FILE} "
-                f"--model-name {args.model_name} "
-                f"--tensor-parallel-size {tensor_parallel_size} "
-                f"--local-rank {local_rank} "
-                f"--start-layer-id {layer_idx} "
-                f"--end-layer-id {layer_idx + pp_partition[local_rank]}"
+                f"--model-name={args.model_name} "
+                f"--tensor-parallel-size={tensor_parallel_size} "
+                f"--local-rank={local_rank} "
+                f"--start-layer-id={layer_idx} "
+                f"--end-layer-id={layer_idx + pp_partition[local_rank]}"
             )
 
             hostname = node_ip
@@ -57,16 +63,16 @@ if __name__ == "__main__":
             current_file_dir = os.path.dirname(current_file_path)
             log_file_path = os.path.join(current_file_dir, f"{node_ip}_{local_rank}.log")
 
-            logger.info(f"[{hostname}] 원격 서버 실행 명령어: {base_server_command}")
-            logger.info(f"[{hostname}] 원격 서버 로그 파일 경로: {log_file_path}")
+            print(f"[{hostname}] 원격 서버 실행 명령어: {base_server_command}")
+            print(f"[{hostname}] 원격 서버 로그 파일 경로: {log_file_path}")
 
             # utils.py의 run_server_remote를 호출한다고 가정 (이전 command.py의 내용과 유사)
             success, process = run_server_remote(hostname, username, base_server_command, log_file_path)
             if not success:
-                logger.error(f"[{hostname}] 원격 서버 실행 실패: {process}")
+                print(f"[{hostname}] 원격 서버 실행 실패: {process}")
                 sys.exit(1)
             else:
-                logger.info(f"[{hostname}] 원격 서버 실행 성공: {process}")
+                print(f"[{hostname}] 원격 서버 실행 성공: {process}")
 
             managed_tensor_store_servers[node_ip].append(process)
         layer_idx += pp_partition[local_rank]
@@ -74,10 +80,10 @@ if __name__ == "__main__":
     try:
         while True:
             if not managed_tensor_store_servers:
-                logger.info("관리할 원격 프로세스가 없습니다. 5초 후 재확인...")
+                print("관리할 원격 프로세스가 없습니다. 5초 후 재확인...")
                 time.sleep(5)
                 if not managed_tensor_store_servers: # 다시 한번 확인 후 종료 결정
-                    logger.info("관리할 프로세스가 없어 루프를 종료합니다.")
+                    print("관리할 프로세스가 없어 루프를 종료합니다.")
                     break
 
             for hostname, proc_obj_list in managed_tensor_store_servers.items(): # dict 변경 중 순회를 위해 list 사용
@@ -85,81 +91,76 @@ if __name__ == "__main__":
                     return_code = proc_obj.poll()
 
                     if return_code is None:
-                        logger.info(f"[{hostname}] ({time.strftime('%H:%M:%S')}) 원격 서버 실행 중 (SSH PID: {proc_obj.pid}).")
+                        print
                         # 여기에 원격 로그 파일 확인 로직 추가 가능
                         # 예: check_remote_log(hostname, username, log_file_path_for_this_host)
                     else:
-                        logger.error(f"[{hostname}] ({time.strftime('%H:%M:%S')}) 원격 서버가 종료되었거나 연결이 끊어졌습니다! 반환 코드: {return_code}")
+                        print(f"[{hostname}] ({time.strftime('%H:%M:%S')}) 원격 서버가 종료되었거나 연결이 끊어졌습니다! 반환 코드: {return_code}")
                         try:
                             stdout_data, stderr_data = proc_obj.communicate(timeout=1) # 이미 종료되었으므로 짧은 타임아웃
                             if stderr_data:
-                                logger.error(f"[{hostname}] SSH STDERR: {stderr_data.decode().strip()}")
+                                print(f"[{hostname}] SSH STDERR: {stderr_data.decode().strip()}")
                             if stdout_data: # 거의 없을 것으로 예상
-                                logger.info(f"[{hostname}] SSH STDOUT: {stdout_data.decode().strip()}")
+                                print(f"[{hostname}] SSH STDOUT: {stdout_data.decode().strip()}")
                         except Exception as e:
-                            logger.error(f"[{hostname}] 종료된 SSH 프로세스로부터 stderr 읽기 실패: {e}")
+                            print(f"[{hostname}] 종료된 SSH 프로세스로부터 stderr 읽기 실패: {e}")
                     
                     time.sleep(1)
 
                 time.sleep(15) # 15초 간격으로 각 노드 프로세스 상태 확인
 
     except KeyboardInterrupt:
-        logger.info("\nCtrl+C 입력 감지. 실행 중인 모든 원격 프로세스를 종료 시도합니다...")
+        logger.info("\nCtrl+C 입력 감지. 실행 중인 모든 원격 프로세스를 강제 종료 시도합니다...")
         
-        # 종료 대상 프로세스 목록 수집 (호스트명, Popen 객체)
-        processes_to_terminate: List[Tuple[str, subprocess.Popen]] = []
+        # 종료해야 할 원격 호스트 및 해당 로컬 Popen 객체들 수집
+        hosts_and_procs: Dict[str, List[subprocess.Popen]] = {}
         for hostname, proc_obj_list in managed_tensor_store_servers.items():
-            for proc_obj in proc_obj_list:
-                if isinstance(proc_obj, subprocess.Popen) and proc_obj.poll() is None:
-                    processes_to_terminate.append((hostname, proc_obj))
+            active_local_procs = [p for p in proc_obj_list if isinstance(p, subprocess.Popen) and p.poll() is None]
+            if active_local_procs:
+                hosts_and_procs[hostname] = active_local_procs
 
-        if not processes_to_terminate:
-            logger.info("종료할 활성 원격 프로세스가 없습니다.")
+        if not hosts_and_procs:
+            logger.info("종료할 활성 원격 프로세스(또는 SSH 연결)가 없는 것 같습니다.")
         else:
-            # 1단계: 모든 활성 프로세스에 SIGTERM 보내기
-            logger.info(f"{len(processes_to_terminate)}개의 활성 원격 프로세스에 SIGTERM 신호를 보냅니다...")
-            for hostname, proc_obj in processes_to_terminate:
-                logger.info(f"[{hostname}] 원격 프로세스(SSH PID: {proc_obj.pid})에 SIGTERM 전송.")
+            username = "ubuntu" # utils.py 와 동일하게 가정
+            # pkill 패턴: TENSOR_SERVER_FILE 경로와 --model-name 인자를 포함하는 프로세스
+            # shlex.quote를 사용하여 패턴 내 특수문자(공백 등)를 안전하게 처리
+            pkill_pattern_unquoted = f"{TENSOR_SERVER_FILE}.*--model-name={args.model_name}"
+            quoted_pkill_pattern = shlex.quote(pkill_pattern_unquoted)
+            pkill_command = f"pkill -SIGKILL -f {quoted_pkill_pattern}"
+
+            logger.info("원격 프로세스 강제 종료 (SIGKILL) 시도...")
+            for hostname in hosts_and_procs.keys():
                 try:
-                    proc_obj.terminate()
-                except Exception as e:
-                    logger.error(f"[{hostname}] PID {proc_obj.pid}에 SIGTERM 전송 중 오류: {e}")
+                    logger.info(f"[{hostname}] 원격 SIGKILL 명령 실행: ssh {username}@{hostname} '{pkill_command}'")
+                    # check=False: pkill이 대상을 못찾아도 오류 발생 안함 (최선 노력)
+                    # timeout: 응답이 너무 길어지는 것을 방지
+                    subprocess.run(
+                        ["ssh", f"{username}@{hostname}", pkill_command],
+                        timeout=10, check=False, capture_output=True, text=True
+                    )
+                    logger.info(f"[{hostname}] 원격 SIGKILL 명령 전송 완료 (결과는 확인하지 않음).")
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"[{hostname}] 원격 SIGKILL 명령 시간 초과.")
+                except Exception as e_pkill:
+                    logger.error(f"[{hostname}] 원격 SIGKILL 명령 실행 중 오류: {e_pkill}")
+            
+            logger.info("원격 프로세스에 대한 강제 종료(SIGKILL) 시도 완료.")
 
-            # 종료될 시간 약간 대기
-            time.sleep(5)
-
-            # 2단계: 각 프로세스가 종료될 때까지 대기 (또는 타임아웃 후 SIGKILL)
-            logger.info("각 원격 프로세스의 종료를 확인 및 대기합니다...")
-            for hostname, proc_obj in processes_to_terminate:
-                if proc_obj.poll() is None: # SIGTERM 후에도 아직 실행 중이라면
-                    logger.info(f"[{hostname}] 원격 프로세스(SSH PID: {proc_obj.pid}) 종료 대기 중 (최대 10초)...")
-                    try:
-                        proc_obj.wait(timeout=10) # 종료 대기
-                        logger.info(f"[{hostname}] 원격 프로세스(SSH PID: {proc_obj.pid})가 SIGTERM에 의해 정상 종료됨 (코드: {proc_obj.returncode}).")
-                    except subprocess.TimeoutExpired:
-                        logger.warning(f"[{hostname}] 원격 프로세스(SSH PID: {proc_obj.pid})가 SIGTERM에 응답하지 않아 강제 종료(SIGKILL)합니다.")
+            # 로컬 SSH 클라이언트 프로세스 정리 (최선 노력)
+            logger.info("로컬 SSH 클라이언트 프로세스 정리 시도...")
+            for hostname, proc_obj_list_for_host in hosts_and_procs.items():
+                 for proc_obj in proc_obj_list_for_host:
+                    if proc_obj.poll() is None:
                         try:
-                            proc_obj.kill() # 강제 종료
-                            proc_obj.wait(timeout=5) # SIGKILL 후 OS 정리를 위해 짧게 대기
-                            logger.info(f"[{hostname}] 원격 프로세스(SSH PID: {proc_obj.pid})가 SIGKILL에 의해 강제 종료됨 (코드: {proc_obj.returncode}).")
-                        except subprocess.TimeoutExpired:
-                            logger.error(f"[{hostname}] 원격 프로세스(SSH PID: {proc_obj.pid}) 강제 종료 후에도 응답이 없습니다.")
-                        except Exception as e_kill:
-                            logger.error(f"[{hostname}] PID {proc_obj.pid} 강제 종료 중 오류: {e_kill}")
-                    except Exception as e_wait:
-                        logger.error(f"[{hostname}] PID {proc_obj.pid} 종료 대기 중 알 수 없는 오류: {e_wait}. 현재 상태: {proc_obj.poll()}")
-                        # 위에서 오류 발생 시, 만약 아직도 실행 중이면 최후의 수단으로 kill 시도
-                        if proc_obj.poll() is None:
-                            logger.warning(f"[{hostname}] 알 수 없는 오류 후 강제 종료(SIGKILL) 재시도 (PID: {proc_obj.pid}).")
-                            try:
-                                proc_obj.kill()
-                                proc_obj.wait(timeout=5)
-                            except Exception as e_kill_final:
-                                logger.error(f"[{hostname}] PID {proc_obj.pid} 최종 강제 종료 중 오류: {e_kill_final}")
-                else: # SIGTERM 전송 후 또는 그 사이에 이미 종료된 경우
-                    logger.info(f"[{hostname}] 원격 프로세스(SSH PID: {proc_obj.pid})가 이미 종료되어 있습니다 (코드: {proc_obj.returncode}).")
+                            logger.info(f"[{hostname}] 로컬 SSH 클라이언트 (PID {proc_obj.pid}) 강제 종료(kill).")
+                            proc_obj.kill() 
+                            proc_obj.wait(timeout=2) # kill 후 짧게 대기
+                        except Exception as e_kill_local:
+                            logger.error(f"[{hostname}] 로컬 SSH 클라이언트 (PID {proc_obj.pid}) kill 중 오류: {e_kill_local}")
+                    # else: 이미 종료된 경우 특별히 로깅 안함
         
-        logger.info("모든 원격 프로세스에 대한 종료 처리 시도 완료.")
+        logger.info("모든 종료 처리 시도 완료.")
 
     finally:
-        logger.info("스크립트 종료.")
+        print("스크립트 종료.")
