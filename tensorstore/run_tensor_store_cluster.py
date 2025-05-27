@@ -57,6 +57,9 @@ if __name__ == "__main__":
             current_file_dir = os.path.dirname(current_file_path)
             log_file_path = os.path.join(current_file_dir, f"{node_ip}_{local_rank}.log")
 
+            logger.info(f"[{hostname}] 원격 서버 실행 명령어: {base_server_command}")
+            logger.info(f"[{hostname}] 원격 서버 로그 파일 경로: {log_file_path}")
+
             # utils.py의 run_server_remote를 호출한다고 가정 (이전 command.py의 내용과 유사)
             success, process = run_server_remote(hostname, username, base_server_command, log_file_path)
             if not success:
