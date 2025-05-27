@@ -21,6 +21,7 @@ python benchmark_serving.py --backend vllm \
     --random-input-len=1024 \
     --random-output-len=128 \
     --num-prompts 1024 \
+    --ignore-eos \
     --metric-percentiles="25,50,75,99" \
     --percentile-metrics="ttft,tpot,itl,e2el" \
     --save-result --save-detailed \

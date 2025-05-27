@@ -24,7 +24,7 @@ BASE_CMD="python benchmark_serving.py --backend vllm \
     --save-result --save-detailed \
     --result-dir=./results"
 
-CONCURRENCY_VALUES=(16 32 64 128 256)
+CONCURRENCY_VALUES=(1 2 4 8 16 32 64 128 256)
 
 # --max-concurrency 값을 1부터 8까지 반복
 for i in "${CONCURRENCY_VALUES[@]}"
