@@ -54,7 +54,8 @@ if __name__ == "__main__":
 
             hostname = node_ip
             username = "ubuntu"
-            log_file_path = os.path.join(current_file_path, f"{node_ip}_{local_rank}.log")
+            current_file_dir = os.path.dirname(current_file_path)
+            log_file_path = os.path.join(current_file_dir, f"{node_ip}_{local_rank}.log")
 
             # utils.py의 run_server_remote를 호출한다고 가정 (이전 command.py의 내용과 유사)
             success, process = run_server_remote(hostname, username, base_server_command, log_file_path)
