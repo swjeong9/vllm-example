@@ -51,8 +51,8 @@ USE_CPU_LOADING = False  # False: 직접 GPU 로딩, True: CPU 로딩 후 GPU �
 # 열 단위로 쪼개는 경우 1번째 차원 (0부터 세면 0번째 차원) 을 쪼개야 한다 -> output dim
 # 행 단위로 쪼개는 경우 2번째 차원 (0부터 세면 1번째 차원) 을 쪼개야 한다 -> input dim
 # vLLM 에서는 input_dim 이 1, output_dim 이 0이다.
-COLUMN_WAY = 0
-ROW_WAY = 1
+INPUT_DIM = 0
+OUTPUT_DIM = 1
 DIV_COLUMN_WISE_LIST = ["q_proj", "k_proj", "v_proj", "gate_proj", "up_proj"]
 DIV_ROW_WISE_LIST = ["o_proj", "down_proj"]
 VOCAB_PADDING_SIZE = 64
@@ -313,6 +313,52 @@ def load_tensors_from_file(st_file: str, tie_word_embeddings: bool):
     
     logging.info(f"Finished loading file: {st_file}")
 
+
+def fuse_tensor(layer_idx: int):
+    # bias 는 나중에 처리하자
+
+    # 1. q_proj, k_proj, v_proj 를 가져온다.
+    q_proj_tensor_name = f"model.layers.{layer_idx}.self_attn.q_proj.weight"
+    k_proj_tensor_name = f"model.layers.{layer_idx}.self_attn.k_proj.weight"
+    v_proj_tensor_name = f"model.layers.{layer_idx}.self_attn.v_proj.weight"
+
+    q_proj_tensor = TENSOR_DICT[q_proj_tensor_name]
+    k_proj_tensor = TENSOR_DICT[k_proj_tensor_name]
+    v_proj_tensor = TENSOR_DICT[v_proj_tensor_name]
+
+    # q_proj, k_proj, v_proj 를 합친다.
+    # input dim : 1, 이 dimension 은 그대로여야 함
+    # Input Dimension 을 그대로 두고 이어붙인다.
+    qkv_proj_tensor = torch.cat((q_proj_tensor, k_proj_tensor, v_proj_tensor), dim=INPUT_DIM)
+    qkv_proj_tensor_name = f"model.layers.{layer_idx}.self_attn.qkv_proj.weight"
+
+    # qkv_proj_tensor 를 저장한다.
+    TENSOR_DICT[qkv_proj_tensor_name] = qkv_proj_tensor
+
+    # 기존 q_proj, k_proj, v_proj 는 삭제한다.
+    del TENSOR_DICT[q_proj_tensor_name]
+    del TENSOR_DICT[k_proj_tensor_name]
+    del TENSOR_DICT[v_proj_tensor_name]
+
+    # 2. gate_proj, up_proj 를 가져온다.
+    gate_proj_tensor_name = f"model.layers.{layer_idx}.mlp.gate_proj.weight"
+    up_proj_tensor_name = f"model.layers.{layer_idx}.mlp.up_proj.weight"
+
+    gate_proj_tensor = TENSOR_DICT[gate_proj_tensor_name]
+    up_proj_tensor = TENSOR_DICT[up_proj_tensor_name]
+
+    # gate_proj, up_proj 를 합친다.
+    # input dim : 1, 이 dimension 은 그대로여야 함
+    gate_up_proj_tensor = torch.cat((gate_proj_tensor, up_proj_tensor), dim=INPUT_DIM)
+    gate_up_proj_tensor_name = f"model.layers.{layer_idx}.mlp.gate_up_proj.weight"
+
+    # gate_up_proj_tensor 를 저장한다.
+    TENSOR_DICT[gate_up_proj_tensor_name] = gate_up_proj_tensor
+
+    # 기존 gate_proj, up_proj 는 삭제한다.
+    del TENSOR_DICT[gate_proj_tensor_name]
+    del TENSOR_DICT[up_proj_tensor_name]
+
 def main():
     args = parse_args()
     model_name = args.model_name
@@ -371,6 +417,27 @@ def main():
     except Exception as e:
         logging.error(f"Model Loading 중 Error 발생: {e}")
         raise e
+
+    # Fusing 하기 전 memory usage check
+    logging.info(f"Before fusing, memory usage: {torch.cuda.memory_summary(device=DEVICE)}")
+    # 여기에 이제 tensor 를 fuse 해야 함.
+    # 1 : q_proj, k_proj, v_proj 를 input_dim (1) 을 그대로 두고
+    # qkv_proj 로 합쳐야 함.
+    # 2 : gate_proj, up_proj 를 input_dim (1) 을 그대로 두고
+    # gate_up_proj 로 합쳐야 함.
+    # 이는 layer 별로 이루어져야 함.
+    logging.info(f"Start fusing tensors for layers {START_LAYER_ID} to {END_LAYER_ID}")
+    for layer_idx in range(START_LAYER_ID, END_LAYER_ID):
+        fuse_tensor(layer_idx)
+    logging.info(f"Finished fusing tensors for layers {START_LAYER_ID} to {END_LAYER_ID}")
+    # Fusing 후 memory usage check
+    logging.info("Emptying CUDA cache after fusing...")
+    torch.cuda.empty_cache()
+    logging.info(f"After emptying cache, memory usage: {torch.cuda.memory_summary(device=DEVICE)}")
+
+    # 최종적인 tensor들 print 하기
+    for tensor_name in TENSOR_DICT:
+        logging.info(f"tensor_name: {tensor_name} / shape: {TENSOR_DICT[tensor_name].shape} / dtype: {TENSOR_DICT[tensor_name].dtype} / device: {TENSOR_DICT[tensor_name].device}")
         
     load_end = time.perf_counter()
     logging.info(f"Model Loading time: {load_end - load_start} seconds")
