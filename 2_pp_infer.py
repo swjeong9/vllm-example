@@ -70,7 +70,7 @@ async def main():
     # V0 버전 사용
     os.environ["VLLM_USE_V1"] = "0"
 
-    model = "meta-llama/Meta-Llama-3-8B-Instruct"
+    model = "meta-llama/Llama-3.1-8B"
     task = "generate"
     dtype = "float16"
 
@@ -80,7 +80,7 @@ async def main():
         "dtype": dtype,
         "parallel_strategy": [1],
         "enforce_eager": True,
-        "gpu_memory_utilization": 0.3,
+        "gpu_memory_utilization": 0.25,
         # "tensor_parallel_size": 1,
         # "pipeline_parallel_size": 1,
     }
@@ -114,6 +114,26 @@ async def main():
             )
     init_end_to_end_end = time.time()
     print(f"Inference Process Init Time: {init_end_to_end_end - init_end_to_end_start} seconds")
+
+
+    # 초기에 한번 추론 수행해봄
+    initial_input = "What is LLM?"
+    example_input = {
+        "prompt": initial_input,
+        "stream": False,
+        "temperature": 0.0,
+        "request_id": 0,
+    }
+
+    results_generator = engine.generate(
+        example_input["prompt"],
+        SamplingParams(temperature=example_input["temperature"]),
+        example_input["request_id"])
+
+    async for request_output in results_generator:
+        for text_output in request_output.outputs:
+            print(f"Output: {text_output.text.strip()}\n")
+
 
     # 토크나이저 가져오기 (engine 객체에 tokenizer가 있다고 가정)
     tokenizer = engine.engine.tokenizer # engine.tokenizer 가 아니라 engine.engine.tokenizer 일 수 있음 (vLLM 내부 구조에 따라 다름)
