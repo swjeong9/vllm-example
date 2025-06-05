@@ -1,0 +1,110 @@
+# matmul 을 실행하고 flops 와 memory bandwidth 를 통해 latency 를 예측
+
+import torch
+import time
+
+
+if __name__ == "__main__":
+    # Check if CUDA is available
+    if not torch.cuda.is_available():
+        print("CUDA is not available. Exiting.")
+        exit()
+
+    test_FLOPS = 242 * 10**12
+    test_memory_bandwidth = 300 * 10**9
+
+    
+
+    # Computation-bound workload 와 Memory-bound workload 를 모두 측정
+    # 최대한 단순한 행렬곱 워크로드로 설정한다.
+
+    # 1. Computation-bound workload
+    print("\\n--- Computation-Bound Workload ---")
+    K = 2048
+    M = 2048 * 4
+    N = 2048
+
+    A = torch.rand(K, M, device='cuda', dtype=torch.float16) # Adjusted for matmul, dtype float16
+    B = torch.rand(M, N, device='cuda', dtype=torch.float16) # Adjusted for matmul, dtype float16
+
+    # 행렬곱 연산 수: 2 * K * M * N
+    matmul_flops = 2 * K * M * N
+    # 메모리 접근 비용: A 읽기 + B 읽기 (C 쓰기는 일반적으로 연산과 겹침)
+    matmul_memory_bytes = (K * M + M * N) * A.element_size() # float16 is 2 bytes
+
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+
+    # Warm-up
+    for _ in range(5):
+        C_warmup = torch.matmul(A, B)
+    torch.cuda.synchronize()
+
+    iterations = 1000
+    start_event.record()
+    for _ in range(iterations):
+        C = torch.matmul(A, B)
+    end_event.record()
+    torch.cuda.synchronize()
+
+    real_time = (start_event.elapsed_time(end_event) / 1000) / iterations  # 평균 시간 (초 단위)
+    
+    # Computation-bound workload에서는 연산 시간이 지배적
+    estimated_time_flops = matmul_flops / test_FLOPS
+    estimated_time_memory = matmul_memory_bytes / test_memory_bandwidth
+    estimated_time = estimated_time_flops + estimated_time_memory # 둘 다 고려
+
+
+    print(f"Dimensions: K={K}, M={M}, N={N}")
+    print(f"Actual Latency: {real_time:.6f} seconds")
+    print(f"Estimated Latency (FLOPS-based): {estimated_time_flops:.6f} seconds")
+    print(f"Estimated Latency (Memory-based): {estimated_time_memory:.6f} seconds")
+    print(f"Estimated Latency (Combined): {estimated_time:.6f} seconds")
+    print(f"Calculation: {matmul_flops} FLOPs / {test_FLOPS:.0f} FLOPS + {matmul_memory_bytes / (1024**3):.4f} GB / {test_memory_bandwidth / (1024**3):.2f} GB/s")
+
+
+    # 2. Memory-bound workload
+    print("\\n--- Memory-Bound Workload (Element-wise Sum) ---")
+    # 큰 텐트를 만들어서 요소별 합산을 수행 (메모리 접근이 많고, 연산은 적음)
+    size_mem = 1024 * 1024 * 2048  # 2Gi elements
+    
+    A_mem = torch.rand(size_mem, device='cuda', dtype=torch.float16)
+    B_mem = torch.rand(size_mem, device='cuda', dtype=torch.float16)
+
+    # 요소별 덧셈 연산 수: size_mem (각 요소당 1번의 덧셈)
+    # 실제로는 SIMD 등으로 더 최적화될 수 있지만, 단순화된 모델 사용
+    add_ops_mem = size_mem 
+    # 메모리 접근 비용: A 읽기 + B 읽기 + C 쓰기
+    # 각 텐서는 size_mem * element_size() 바이트
+    element_wise_memory_bytes_mem = (size_mem * A_mem.element_size()) * 3 # A read, B read, C write
+
+    start_event_mem = torch.cuda.Event(enable_timing=True)
+    end_event_mem = torch.cuda.Event(enable_timing=True)
+
+    # Warm-up
+    for _ in range(5):
+        C_mem_warmup = A_mem + B_mem
+    torch.cuda.synchronize()
+
+    del C_mem_warmup
+    torch.cuda.empty_cache()
+
+    start_event_mem.record()
+    for _ in range(iterations):
+        A_mem += B_mem
+    end_event_mem.record()
+    torch.cuda.synchronize()
+
+    real_time_mem = start_event_mem.elapsed_time(end_event_mem) / 1000 / iterations # 초 단위
+
+    # Memory-bound workload에서는 메모리 전송 시간이 지배적
+    estimated_time_mem_ops = add_ops_mem / test_FLOPS # 연산 시간은 매우 작을 것으로 예상
+    estimated_time_mem_memory = element_wise_memory_bytes_mem / test_memory_bandwidth
+    estimated_time_mem = estimated_time_mem_ops + estimated_time_mem_memory
+
+    print(f"Tensor size: {size_mem} elements ({(A_mem.nelement() * A_mem.element_size()) / (1024**3):.4f} GB per tensor)")
+    print(f"Actual Latency: {real_time_mem:.6f} seconds")
+    print(f"Estimated Latency (Ops-based): {estimated_time_mem_ops:.6f} seconds")
+    print(f"Estimated Latency (Memory-based): {estimated_time_mem_memory:.6f} seconds")
+    print(f"Estimated Latency (Combined): {estimated_time_mem:.6f} seconds")
+    print(f"Calculation: {add_ops_mem} FLOPs / {test_FLOPS:.0f} FLOPS + {element_wise_memory_bytes_mem / (1024**3):.4f} GB / {test_memory_bandwidth / (1024**3):.2f} GB/s")
