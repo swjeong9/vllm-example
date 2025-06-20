@@ -14,7 +14,7 @@ if __name__ == "__main__":
 
     # L4 는 Data Sheet 상으로는 242 TFLOPS 이지만, 이는 Sparsity Matrix 일 경우이며
     # Transformer 와 같은 구조에서는 Sparsity matrix 가 아니므로 실제로는 121 TFLOPS 로 적용된다.
-    test_FLOPS = 121 * 10**12 * 2
+    test_FLOPS = 121 * 10**12
     test_memory_bandwidth = 300 * 10**9 # 단위 : bytes/s
 
     ridge_point = test_FLOPS / test_memory_bandwidth
