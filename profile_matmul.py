@@ -18,7 +18,10 @@ if __name__ == "__main__":
     test_memory_bandwidth = 300 * 10**9 # 단위 : bytes/s
 
     ridge_point = test_FLOPS / test_memory_bandwidth
-
+    
+    print(f"DTYPE: {DTYPE}")
+    print(f"Device FLOPS: {test_FLOPS // (10**12)} TFLOPS")
+    print(f"Device Memory Bandwidth: {test_memory_bandwidth // (10**9)} GB/s")
     print(f"Ridge point (Machine Balance Point): {ridge_point:.2f}")
 
     # Computation-bound workload 와 Memory-bound workload 를 모두 측정
@@ -60,11 +63,10 @@ if __name__ == "__main__":
     estimated_time_memory = matmul_memory_bytes / test_memory_bandwidth
     arithmetic_intensity = matmul_flops / matmul_memory_bytes
 
-
-    print(f"Dimensions: K={K}, M={M}, N={N}")
-    print(f"Actual Latency: {real_time:.6f} seconds")
-    print(f"Estimated Latency (FLOPS-based): {estimated_time_flops:.6f} seconds")
-    print(f"Estimated Latency (Memory-based): {estimated_time_memory:.6f} seconds")
+    print(f"행렬곱 워크로드 : K={K}, M={M}, N={N}")
+    print(f"Real Latency: {real_time*1000:.3f} ms")
+    print(f"Estimated Latency (Compute): {estimated_time_flops*1000:.3f} ms")
+    print(f"Estimated Latency (Memory Access): {estimated_time_memory*1000:.3f} ms")
     print(f"Arithmetic Intensity: {arithmetic_intensity:.2f}")
     if arithmetic_intensity > ridge_point:
         print("This workload is computation-bound")
@@ -75,7 +77,7 @@ if __name__ == "__main__":
     # 2. Memory-bound workload
     print("\n--- Memory-Bound Workload (Element-wise Sum) ---")
     # 큰 텐트를 만들어서 요소별 합산을 수행 (메모리 접근이 많고, 연산은 적음)
-    size_mem = 1024 * 1024 * 2048  # 2Gi elements
+    size_mem = 1024 * 1024 * 1024  # 1Gi elements
     
     A_mem = torch.rand(size_mem, device='cuda', dtype=DTYPE)
     B_mem = torch.rand(size_mem, device='cuda', dtype=DTYPE)
@@ -111,10 +113,11 @@ if __name__ == "__main__":
     estimated_time_mem_memory = element_wise_memory_bytes_mem / test_memory_bandwidth
     arithmetic_intensity_mem = add_ops_mem / element_wise_memory_bytes_mem
 
-    print(f"Tensor size: {size_mem} elements ({(A_mem.nelement() * A_mem.element_size()) / (1024**3):.4f} GB per tensor)")
-    print(f"Actual Latency: {real_time_mem:.6f} seconds")
-    print(f"Estimated Latency (FLOPS-based): {estimated_time_mem_ops:.6f} seconds")
-    print(f"Estimated Latency (Memory-based): {estimated_time_mem_memory:.6f} seconds")
+    mem_size_per_tensor = size_mem * A_mem.element_size() / (1024**3)
+    print(f"행렬합 워크로드 : A ({mem_size_per_tensor:.2f} GB) + B ({mem_size_per_tensor:.2f} GB) = C ({mem_size_per_tensor:.2f} GB)")
+    print(f"Real Latency: {real_time_mem*1000:.3f} ms")
+    print(f"Estimated Latency (Compute): {estimated_time_mem_ops*1000:.3f} ms")
+    print(f"Estimated Latency (Memory Access): {estimated_time_mem_memory*1000:.3f} ms")
     print(f"Arithmetic Intensity: {arithmetic_intensity_mem:.2f}")
     if arithmetic_intensity_mem > ridge_point:
         print("This workload is computation-bound")
