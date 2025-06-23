@@ -11,6 +11,7 @@ if __name__ == "__main__":
         exit()
 
     DTYPE=torch.float16
+    DEVICE="cuda:0"
 
     # L4 는 Data Sheet 상으로는 242 TFLOPS 이지만, 이는 Sparsity Matrix 일 경우이며
     # Transformer 와 같은 구조에서는 Sparsity matrix 가 아니므로 실제로는 121 TFLOPS 로 적용된다.
@@ -33,8 +34,8 @@ if __name__ == "__main__":
     M = 8192
     N = 8192
 
-    A = torch.rand(K, M, device='cuda', dtype=DTYPE) # Adjusted for matmul, dtype float16
-    B = torch.rand(M, N, device='cuda', dtype=DTYPE) # Adjusted for matmul, dtype float16
+    A = torch.rand(K, M, device=DEVICE, dtype=DTYPE) # Adjusted for matmul, dtype float16
+    B = torch.rand(M, N, device=DEVICE, dtype=DTYPE) # Adjusted for matmul, dtype float16
 
     # 행렬곱 연산 수: 2 * K * M * N
     matmul_flops = 2 * K * M * N
@@ -83,8 +84,8 @@ if __name__ == "__main__":
     # 큰 텐트를 만들어서 요소별 합산을 수행 (메모리 접근이 많고, 연산은 적음)
     size_mem = 1024 * 1024 * 1024  # 1Gi elements
     
-    A_mem = torch.rand(size_mem, device='cuda', dtype=DTYPE)
-    B_mem = torch.rand(size_mem, device='cuda', dtype=DTYPE)
+    A_mem = torch.rand(size_mem, device=DEVICE, dtype=DTYPE)
+    B_mem = torch.rand(size_mem, device=DEVICE, dtype=DTYPE)
 
     # 요소별 덧셈 연산 수: size_mem (각 요소당 1번의 덧셈)
     # 실제로는 SIMD 등으로 더 최적화될 수 있지만, 단순화된 모델 사용
