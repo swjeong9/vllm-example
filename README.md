@@ -1,6 +1,6 @@
 # vllm-example
 This project aims to practice vllm framework for developing distributed LLM serving system.
-Currently used version of vllm : v0.7.3
+Currently used version of vllm : v0.8.1
 
 ### Install build essential & cmake
 ```bash
