@@ -57,6 +57,8 @@ if __name__ == "__main__":
     torch.cuda.synchronize()
 
     real_time = (start_event.elapsed_time(end_event) / 1000) / iterations  # 평균 시간 (초 단위)
+    real_flops = matmul_flops / real_time
+    real_memory_bandwidth = matmul_memory_bytes / real_time
     
     # Computation-bound workload에서는 연산 시간이 지배적
     estimated_time_flops = matmul_flops / test_FLOPS
@@ -70,8 +72,10 @@ if __name__ == "__main__":
     print(f"Arithmetic Intensity: {arithmetic_intensity:.2f}")
     if arithmetic_intensity > ridge_point:
         print("This workload is computation-bound")
+        print(f"Real FLOPS: {real_flops / (1000**4):.2f} TFLOPS")
     else:
         print("This workload is memory-bound")
+        print(f"Real Memory Bandwidth: {real_memory_bandwidth / (1000**3):.2f} GB/s")
 
 
     # 2. Memory-bound workload
@@ -107,6 +111,8 @@ if __name__ == "__main__":
     torch.cuda.synchronize()
 
     real_time_mem = start_event_mem.elapsed_time(end_event_mem) / 1000 / iterations # 초 단위
+    real_flops_mem = add_ops_mem / real_time_mem
+    real_memory_bandwidth_mem = element_wise_memory_bytes_mem / real_time_mem
 
     # Memory-bound workload에서는 메모리 전송 시간이 지배적
     estimated_time_mem_ops = add_ops_mem / test_FLOPS # 연산 시간은 매우 작을 것으로 예상
@@ -121,5 +127,7 @@ if __name__ == "__main__":
     print(f"Arithmetic Intensity: {arithmetic_intensity_mem:.2f}")
     if arithmetic_intensity_mem > ridge_point:
         print("This workload is computation-bound")
+        print(f"Real FLOPS: {real_flops_mem / (1000**4):.2f} TFLOPS")
     else:
         print("This workload is memory-bound")
+        print(f"Real Memory Bandwidth: {real_memory_bandwidth_mem / (1000**3):.2f} GB/s")
